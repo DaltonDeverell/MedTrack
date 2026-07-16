@@ -64,11 +64,14 @@ def add_minutes(time_string, minutes):
 # GENERATE PLAN
 # =====================================================
 
+# =====================================================
+# GENERATE PLAN
+# =====================================================
+
 def generate_plan(module, hours):
 
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
-
     cursor = conn.cursor()
 
     # -------------------------------------------------
@@ -78,40 +81,28 @@ def generate_plan(module, hours):
     if module == "All":
 
         cursor.execute("""
-
             SELECT *
-
             FROM curriculum
-
             WHERE completed = 0
-
             ORDER BY module,
                      learning_type,
                      topic,
                      task
-
         """)
 
     else:
 
         cursor.execute("""
-
             SELECT *
-
             FROM curriculum
-
             WHERE completed = 0
-
             AND module = ?
-
             ORDER BY learning_type,
                      topic,
                      task
-
-        """,(module,))
+        """, (module,))
 
     rows = cursor.fetchall()
-
     conn.close()
 
     # -------------------------------------------------
@@ -119,62 +110,51 @@ def generate_plan(module, hours):
     # -------------------------------------------------
 
     tasks = [
-
         row
-
         for row in rows
-
         if row["learning_type"] in SELF_STUDY_TYPES
-
     ]
 
     grouped = {}
 
     for learning_type in SELF_STUDY_TYPES:
-
         grouped[learning_type] = []
 
     for task in tasks:
-
         grouped[task["learning_type"]].append(task)
 
     # -------------------------------------------------
     # Available study time
     # -------------------------------------------------
 
-today = datetime.today().strftime("%A")
+    today = datetime.today().strftime("%A")
 
-available_slots = get_available_slots(today)
+    available_slots = get_available_slots(today)
 
-blocks = load_blocks_for_day(today)
+    blocks = load_blocks_for_day(today)
 
-available_slots = remove_slots_inside_blocks(
-    available_slots,
-    blocks
-)
+    available_slots = remove_slots_inside_blocks(
+        available_slots,
+        blocks
+    )
 
-if len(available_slots) == 0:
-
-    available_slots = ["18:00"]
+    if len(available_slots) == 0:
+        available_slots = ["18:00"]
 
     available_minutes = min(
-
         len(available_slots) * 30,
-
         hours * 60
-
     )
 
     available_minutes -= ANKI_MINUTES
 
     if available_minutes < 0:
-
         available_minutes = 0
 
     used_minutes = 0
-
     todays_plan = []
-        # -------------------------------------------------
+
+    # -------------------------------------------------
     # Build today's study tasks
     # -------------------------------------------------
 
@@ -200,15 +180,10 @@ if len(available_slots) == 0:
             todays_plan.append({
 
                 "id": task["id"],
-
                 "module": task["module"],
-
                 "topic": task["topic"],
-
                 "learning_type": task["learning_type"],
-
                 "task": task["task"],
-
                 "duration": duration
 
             })
@@ -221,8 +196,7 @@ if len(available_slots) == 0:
 
         if not added:
             break
-
-    # -------------------------------------------------
+            # -------------------------------------------------
     # Build calendar schedule
     # -------------------------------------------------
 

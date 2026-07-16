@@ -1,6 +1,5 @@
-import sqlite3
-
-DATABASE = "database/medtrack.db"
+from services.supabase_client import supabase
+from auth.auth import current_user
 
 # =====================================================
 # CONSTANTS
@@ -17,32 +16,27 @@ DAYS = [
 ]
 
 BLOCK_TYPES = {
-
     "Placement": "#d9534f",
-
     "University": "#0275d8",
-
     "Study": "#5cb85c",
-
     "Work": "#f0ad4e",
-
     "Personal": "#8e44ad",
-
     "Sleep": "#555555"
-
 }
 
 
 # =====================================================
-# CONNECTION
+# GET USER ID
 # =====================================================
 
-def get_connection():
+def get_user_id():
 
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
+    user = current_user()
 
-    return conn
+    if user is None:
+        raise Exception("No user is logged in.")
+
+    return user.id
 
 
 # =====================================================
@@ -50,136 +44,85 @@ def get_connection():
 # =====================================================
 
 def add_block(
-
     day,
     start_time,
     end_time,
     block_type,
     title
-
 ):
 
-    conn = get_connection()
+    supabase.table("schedule_blocks").insert({
 
-    conn.execute("""
+        "user_id": get_user_id(),
 
-        INSERT INTO schedule_blocks
+        "day": day,
 
-        (
+        "start_time": start_time,
 
-            day,
+        "end_time": end_time,
 
-            start_time,
+        "block_type": block_type,
 
-            end_time,
+        "title": title,
 
-            block_type,
+        "colour": BLOCK_TYPES[block_type]
 
-            title,
-
-            colour
-
-        )
-
-        VALUES
-
-        (
-
-            ?,?,?,?,?,?
-
-        )
-
-    """,
-
-    (
-
-        day,
-
-        start_time,
-
-        end_time,
-
-        block_type,
-
-        title,
-
-        BLOCK_TYPES[block_type]
-
-    )
-
-    )
-
-    conn.commit()
-
-    conn.close()
+    }).execute()
 
 
 # =====================================================
-# LOAD BLOCKS
+# LOAD ALL BLOCKS
 # =====================================================
 
 def load_blocks():
 
-    conn = get_connection()
+    response = (
+        supabase
+        .table("schedule_blocks")
+        .select("*")
+        .eq("user_id", get_user_id())
+        .execute()
+    )
 
-    rows = conn.execute("""
+    rows = response.data
 
-        SELECT *
+    day_order = {
+        "Monday": 1,
+        "Tuesday": 2,
+        "Wednesday": 3,
+        "Thursday": 4,
+        "Friday": 5,
+        "Saturday": 6,
+        "Sunday": 7
+    }
 
-        FROM schedule_blocks
-
-        ORDER BY
-
-            CASE day
-
-                WHEN 'Monday' THEN 1
-
-                WHEN 'Tuesday' THEN 2
-
-                WHEN 'Wednesday' THEN 3
-
-                WHEN 'Thursday' THEN 4
-
-                WHEN 'Friday' THEN 5
-
-                WHEN 'Saturday' THEN 6
-
-                WHEN 'Sunday' THEN 7
-
-            END,
-
-            start_time
-
-    """).fetchall()
-
-    conn.close()
+    rows.sort(
+        key=lambda x: (
+            day_order[x["day"]],
+            x["start_time"]
+        )
+    )
 
     return rows
 
 
 # =====================================================
-# LOAD DAY
+# LOAD ONE DAY
 # =====================================================
 
 def load_day(day):
 
-    conn = get_connection()
+    response = (
+        supabase
+        .table("schedule_blocks")
+        .select("*")
+        .eq("user_id", get_user_id())
+        .eq("day", day)
+        .order("start_time")
+        .execute()
+    )
 
-    rows = conn.execute("""
-
-        SELECT *
-
-        FROM schedule_blocks
-
-        WHERE day=?
-
-        ORDER BY start_time
-
-    """,(day,)).fetchall()
-
-    conn.close()
-
-    return rows
+    return response.data
 
 
 # =====================================================
@@ -188,21 +131,14 @@ def load_day(day):
 
 def delete_block(block_id):
 
-    conn = get_connection()
-
-    conn.execute("""
-
-        DELETE
-
-        FROM schedule_blocks
-
-        WHERE id=?
-
-    """,(block_id,))
-
-    conn.commit()
-
-    conn.close()
+    (
+        supabase
+        .table("schedule_blocks")
+        .delete()
+        .eq("id", block_id)
+        .eq("user_id", get_user_id())
+        .execute()
+    )
 
 
 # =====================================================
@@ -210,85 +146,45 @@ def delete_block(block_id):
 # =====================================================
 
 def update_block(
-
     block_id,
-
     day,
-
     start_time,
-
     end_time,
-
     block_type,
-
     title
-
 ):
 
-    conn = get_connection()
+    (
+        supabase
+        .table("schedule_blocks")
+        .update({
 
-    conn.execute("""
+            "day": day,
 
-        UPDATE schedule_blocks
+            "start_time": start_time,
 
-        SET
+            "end_time": end_time,
 
-            day=?,
+            "block_type": block_type,
 
-            start_time=?,
+            "title": title,
 
-            end_time=?,
+            "colour": BLOCK_TYPES[block_type]
 
-            block_type=?,
+        })
+        .eq("id", block_id)
+        .eq("user_id", get_user_id())
+        .execute()
+    )
 
-            title=?,
 
-            colour=?
-
-        WHERE id=?
-
-    """,(
-
-        day,
-
-        start_time,
-
-        end_time,
-
-        block_type,
-
-        title,
-
-        BLOCK_TYPES[block_type],
-
-        block_id
-
-    ))
-
-    conn.commit()
-
-    conn.close()
-    # =====================================================
+# =====================================================
 # LOAD BLOCKS FOR ONE DAY
 # =====================================================
 
 def load_blocks_for_day(day):
 
-    conn = get_connection()
-
-    rows = conn.execute(
-        """
-        SELECT *
-        FROM schedule_blocks
-        WHERE day = ?
-        ORDER BY start_time
-        """,
-        (day,)
-    ).fetchall()
-
-    conn.close()
-
-    return rows
+    return load_day(day)
 
 
 # =====================================================
