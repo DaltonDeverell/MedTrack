@@ -74,8 +74,7 @@ def generate_plan(
             module,
             topic,
             learning_type,
-            task,
-            completed
+            task
             """
         )
     )
