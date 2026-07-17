@@ -1,4 +1,7 @@
 import streamlit as st
+from auth.require_login import require_login
+
+require_login()
 from streamlit_calendar import calendar
 from planner.planner import generate_plan
 from timetable.timetable_service import load_blocks
@@ -46,10 +49,17 @@ left, right = st.columns(2)
 
 with left:
 
+
+    if "selected_module" not in st.session_state:
+        st.session_state["selected_module"] = "All"
+
     selected_module = st.selectbox(
         "Current Module / Placement",
-        module_names
+        module_names,
+        index=module_names.index(st.session_state["selected_module"])
     )
+
+st.session_state["selected_module"] = selected_module
 
 with right:
 
@@ -66,7 +76,8 @@ with right:
 
 plan = generate_plan(
     selected_module,
-    hours
+    hours,
+    0
 )
 
 # =====================================================

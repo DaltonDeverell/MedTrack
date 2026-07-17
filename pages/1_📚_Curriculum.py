@@ -1,6 +1,18 @@
 import streamlit as st
-import sqlite3
 from collections import defaultdict
+
+from auth.require_login import require_login
+
+from services.progress_service import (
+    get_completed_ids,
+    set_completed,
+)
+
+from services.supabase_client import supabase
+
+
+require_login()
+
 
 # =====================================================
 # PAGE CONFIG
@@ -14,77 +26,97 @@ st.set_page_config(
 
 st.title("📚 Curriculum")
 
-# =====================================================
-# DATABASE
-# =====================================================
-
-conn = sqlite3.connect("database/medtrack.db")
-conn.row_factory = sqlite3.Row
 
 # =====================================================
-# SIDEBAR
+# LOAD USER PROGRESS
+# =====================================================
+
+completed_ids = set(get_completed_ids())
+
+
+# =====================================================
+# SIDEBAR FILTERS
 # =====================================================
 
 st.sidebar.header("Filters")
 
-modules = conn.execute("""
-SELECT DISTINCT module
-FROM curriculum
-ORDER BY module
-""").fetchall()
 
-module_names = ["All"] + [m["module"] for m in modules]
+module_response = (
+    supabase
+    .table("curriculum")
+    .select("module")
+    .execute()
+)
+
+
+modules = sorted(
+    {
+        row["module"]
+        for row in module_response.data
+    }
+)
+
+
+module_names = ["All"] + modules
+
+
+if "selected_module" not in st.session_state:
+    st.session_state.selected_module = "All"
+
 
 selected_module = st.sidebar.selectbox(
     "Module",
-    module_names
+    module_names,
+    index=module_names.index(
+        st.session_state.selected_module
+    )
 )
+
+
+st.session_state.selected_module = selected_module
+
 
 search = st.sidebar.text_input(
     "🔍 Search",
     placeholder="Search learning activities..."
 )
 
-show_completed = st.sidebar.checkbox(
-    "Show completed",
-    value=True
-)
-
-st.sidebar.divider()
 
 # =====================================================
 # LOAD CURRICULUM
 # =====================================================
 
-if selected_module == "All":
+query = (
+    supabase
+    .table("curriculum")
+    .select("*")
+)
 
-    rows = conn.execute("""
-    SELECT *
-    FROM curriculum
-    ORDER BY
-        module,
-        learning_type,
-        topic,
-        task
-    """).fetchall()
 
-else:
+if selected_module != "All":
 
-    rows = conn.execute("""
-    SELECT *
-    FROM curriculum
-    WHERE module=?
-    ORDER BY
-        learning_type,
-        topic,
-        task
-    """,(selected_module,)).fetchall()
+    query = query.eq(
+        "module",
+        selected_module
+    )
+
+
+response = (
+    query
+    .order("module")
+    .execute()
+)
+
+
+rows = response.data
+
 
 # =====================================================
-# FILTERS
+# FILTER SEARCH
 # =====================================================
 
 filtered_rows = []
+
 
 for row in rows:
 
@@ -94,13 +126,10 @@ for row in rows:
 
             continue
 
-    if not show_completed:
-
-        if row["completed"]:
-
-            continue
 
     filtered_rows.append(row)
+
+
 
 # =====================================================
 # BUILD HIERARCHY
@@ -112,26 +141,26 @@ curriculum = defaultdict(
     )
 )
 
+
 for row in filtered_rows:
 
-    module = row["module"]
-
-    learning_type = row["learning_type"]
-
-    topic = row["topic"]
-
-    if topic is None:
-        topic = ""
-
-    curriculum[module][learning_type][topic].append({
+    curriculum[
+        row["module"]
+    ][
+        row["learning_type"]
+    ][
+        row.get("topic") or ""
+    ].append({
 
         "id": row["id"],
 
         "task": row["task"],
 
-        "completed": bool(row["completed"])
+        "completed": row["id"] in completed_ids
 
     })
+
+
 
 # =====================================================
 # ICONS
@@ -140,209 +169,189 @@ for row in filtered_rows:
 ICONS = {
 
     "Lectures":"📖",
-
     "Tutorials":"👥",
-
     "Clinical Skills":"🩺",
-
     "Clinical Pharmacology":"💊",
-
     "CBL Cases":"🧠",
-
     "CBL cases":"🧠",
-
     "SDL":"📚",
-
     "Practicals":"🧪",
-
     "Online Modules":"💻",
-
     "Videos":"🎥"
 
 }
 
+
+
 # =====================================================
-# DISPLAY MODULES
-# =====================================================
-# =====================================================
-# RENDER MODULES
+# DISPLAY
 # =====================================================
 
 for module, learning_types in curriculum.items():
 
+
     module_total = 0
+
     module_done = 0
 
+
     for topics in learning_types.values():
+
         for tasks in topics.values():
+
             module_total += len(tasks)
-            module_done += sum(task["completed"] for task in tasks)
 
-    module_percent = (
-        int((module_done / module_total) * 100)
-        if module_total else 0
-    )
-
-    with st.expander(
-        f"📚 {module} ({module_done}/{module_total} • {module_percent}%)",
-        expanded=False
-    ):
-
-        st.progress(module_percent / 100)
-
-        st.caption(
-            f"{module_done} completed • "
-            f"{module_total - module_done} remaining"
-        )
-
-        st.divider()
-
-        # =============================================
-        # LEARNING TYPES
-        # =============================================
-
-        for learning_type, topics in learning_types.items():
-
-            learning_total = sum(
-                len(tasks)
-                for tasks in topics.values()
-            )
-
-            learning_done = sum(
+            module_done += sum(
                 task["completed"]
-                for tasks in topics.values()
                 for task in tasks
             )
 
-            learning_percent = (
-                int((learning_done / learning_total) * 100)
-                if learning_total else 0
+
+    progress = (
+        module_done / module_total
+        if module_total
+        else 0
+    )
+
+
+    with st.expander(
+        f"📚 {module} ({module_done}/{module_total})"
+    ):
+
+
+        st.progress(progress)
+
+
+        for learning_type, topics in learning_types.items():
+
+
+            icon = ICONS.get(
+                learning_type,
+                "📂"
             )
 
-            icon = ICONS.get(learning_type, "📂")
 
             st.markdown(
                 f"## {icon} {learning_type}"
             )
 
-            st.progress(learning_percent / 100)
-
-            st.caption(
-                f"{learning_done}/{learning_total} completed"
-            )
-
-            # =========================================
-            # TOPICS
-            # =========================================
 
             for topic, tasks in topics.items():
 
-                if topic.strip():
+
+                if topic:
+
 
                     with st.expander(
-                        f"📂 {topic}",
-                        expanded=False
+                        f"📂 {topic}"
                     ):
+
 
                         for task in tasks:
 
+
                             checked = st.checkbox(
+
                                 task["task"],
+
                                 value=task["completed"],
+
                                 key=f"task_{task['id']}"
+
                             )
+
 
                             if checked != task["completed"]:
 
-                                conn.execute(
-                                    """
-                                    UPDATE curriculum
-                                    SET completed=?
-                                    WHERE id=?
-                                    """,
-                                    (
-                                        int(checked),
-                                        task["id"]
-                                    )
+                                set_completed(
+                                    task["id"],
+                                    checked
                                 )
-
-                                conn.commit()
 
                                 st.rerun()
 
+
+
                 else:
+
 
                     for task in tasks:
 
+
                         checked = st.checkbox(
+
                             task["task"],
+
                             value=task["completed"],
+
                             key=f"task_{task['id']}"
+
                         )
+
 
                         if checked != task["completed"]:
 
-                            conn.execute(
-                                """
-                                UPDATE curriculum
-                                SET completed=?
-                                WHERE id=?
-                                """,
-                                (
-                                    int(checked),
-                                    task["id"]
-                                )
+                            set_completed(
+                                task["id"],
+                                checked
                             )
-
-                            conn.commit()
 
                             st.rerun()
 
+
             st.divider()
-            # =====================================================
-# OVERALL SUMMARY
+
+
+
+# =====================================================
+# SUMMARY
 # =====================================================
 
 st.sidebar.divider()
 
-overall_total = len(filtered_rows)
 
-overall_done = sum(
+total = len(filtered_rows)
+
+
+done = sum(
     1
     for row in filtered_rows
-    if row["completed"]
+    if row["id"] in completed_ids
 )
 
-overall_percent = (
-    int((overall_done / overall_total) * 100)
-    if overall_total else 0
+
+percentage = (
+    int(done / total * 100)
+    if total
+    else 0
 )
 
-st.sidebar.subheader("Overall Progress")
 
-st.sidebar.progress(overall_percent / 100)
+st.sidebar.subheader(
+    "Overall Progress"
+)
+
+
+st.sidebar.progress(
+    percentage / 100
+)
+
 
 st.sidebar.metric(
-    "Completion",
-    f"{overall_done}/{overall_total}",
-    f"{overall_percent}%"
+    "Completed",
+    f"{done}/{total}"
 )
 
-remaining = overall_total - overall_done
 
 st.sidebar.metric(
-    "Remaining",
-    remaining
+    "Progress",
+    f"{percentage}%"
 )
 
-# =====================================================
-# FOOTER
-# =====================================================
 
 st.divider()
+
 
 st.caption(
     "🩺 MedTrack • Curriculum Tracker"
 )
-
-conn.close()

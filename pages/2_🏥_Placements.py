@@ -1,4 +1,7 @@
 import streamlit as st
+from auth.require_login import require_login
+
+require_login()
 import pandas as pd
 
 st.set_page_config(page_title="Placements", layout="wide")

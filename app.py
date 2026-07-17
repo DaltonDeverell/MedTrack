@@ -1,4 +1,10 @@
 import streamlit as st
+# =====================================================
+# GLOBAL SESSION STATE
+# =====================================================
+
+if "selected_module" not in st.session_state:
+    st.session_state.selected_module = "All"
 import sqlite3
 from pathlib import Path
 

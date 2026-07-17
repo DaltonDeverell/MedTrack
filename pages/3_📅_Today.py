@@ -1,67 +1,312 @@
 import streamlit as st
 import sqlite3
 
+from auth.require_login import require_login
+
 from planner.planner import generate_plan
+
+from services.progress_service import (
+    set_completed,
+)
+
+from services.daily_plan_service import (
+    get_today_plan,
+    save_today_plan,
+    set_today_completed,
+)
+
+
+require_login()
+
 
 # =====================================================
 # PAGE
 # =====================================================
 
 st.set_page_config(
-    page_title="Today",
+    page_title="Today's Study",
     page_icon="📅",
-    layout="wide"
+    layout="wide",
 )
+
 
 st.title("📅 Today's Study")
 
-st.write("Your personalised study plan for today.")
+st.write(
+    "Generate today's personalised study schedule."
+)
+
+#database 
+
+from services.supabase_client import supabase
+
+
+modules_response = (
+    supabase
+    .table("curriculum")
+    .select("module")
+    .execute()
+)
+
+
+module_names = ["All"]
+
+
+seen_modules = set()
+
+
+for item in modules_response.data:
+
+    module = item["module"]
+
+    if module not in seen_modules:
+
+        seen_modules.add(module)
+
+        module_names.append(module)
+
 
 # =====================================================
-# DATABASE
+# NORMALISE TASK IDS FOR SUPABASE
 # =====================================================
 
-conn = sqlite3.connect("database/medtrack.db")
-conn.row_factory = sqlite3.Row
+def prepare_plan(tasks):
 
-modules = conn.execute("""
-SELECT DISTINCT module
-FROM curriculum
-ORDER BY module
-""").fetchall()
+    cleaned = []
 
-module_names = ["All"] + [m["module"] for m in modules]
+    for task in tasks:
+
+        if "curriculum_id" in task:
+
+            curriculum_id = task["curriculum_id"]
+
+        else:
+
+            curriculum_id = task["id"]
+
+
+        task["curriculum_id"] = curriculum_id
+
+        cleaned.append(task)
+
+
+    return cleaned
+# =====================================================
+# CONSTANTS
+# =====================================================
+
+SECONDS_PER_CARD = 6
+
+MAX_CARDS = 600
+
+
+# =====================================================
+# SESSION STATE
+# =====================================================
+
+if "anki_cards" not in st.session_state:
+
+    st.session_state.anki_cards = 250
+
+
+if "anki_minutes" not in st.session_state:
+
+    st.session_state.anki_minutes = round(
+        st.session_state.anki_cards
+        * SECONDS_PER_CARD
+        / 60
+    )
+
+
+
+# =====================================================
+# CALLBACKS
+# =====================================================
+
+def cards_changed():
+
+    st.session_state.anki_minutes = round(
+        st.session_state.anki_cards
+        * SECONDS_PER_CARD
+        / 60
+    )
+
+
+
+def minutes_changed():
+
+    cards = round(
+        (
+            st.session_state.anki_minutes
+            * 60
+        )
+        / SECONDS_PER_CARD
+    )
+
+
+    cards = max(
+        0,
+        min(
+            MAX_CARDS,
+            cards
+        )
+    )
+
+
+    cards = round(cards / 10) * 10
+
+
+    st.session_state.anki_cards = cards
+
+
 
 # =====================================================
 # SETTINGS
 # =====================================================
 
-left, right = st.columns(2)
+left, middle, right = st.columns(3)
+
+
 
 with left:
 
+    if "selected_module" not in st.session_state:
+
+        st.session_state.selected_module = "All"
+
+
     selected_module = st.selectbox(
+
         "Current Module / Placement",
-        module_names
+
+        module_names,
+
+        index=module_names.index(
+            st.session_state.selected_module
+        )
+
     )
+
+
+    st.session_state.selected_module = selected_module
+
+
+
+with middle:
+
+    hours = st.slider(
+
+        "Study Hours Available",
+
+        min_value=1,
+
+        max_value=8,
+
+        value=3,
+
+    )
+
+
 
 with right:
 
-    hours = st.slider(
-        "Study Hours Available",
-        1,
-        8,
-        3
+    st.subheader("🧠 Daily Anki")
+
+
+    st.slider(
+
+        "Cards",
+
+        min_value=0,
+
+        max_value=MAX_CARDS,
+
+        step=10,
+
+        key="anki_cards",
+
+        on_change=cards_changed,
+
     )
 
-# =====================================================
-# GENERATE PLAN
+
+    st.number_input(
+
+        "Estimated Time (minutes)",
+
+        min_value=0,
+
+        max_value=60,
+
+        step=1,
+
+        key="anki_minutes",
+
+        on_change=minutes_changed,
+
+    )
+
+
+    st.success(
+
+        f"🧠 {st.session_state.anki_cards} cards"
+        f" • "
+        f"⏱️ ≈ {st.session_state.anki_minutes} minutes"
+
+    )
+    # =====================================================
+# LOAD / GENERATE TODAY'S PLAN
 # =====================================================
 
-plan = generate_plan(
-    selected_module,
-    hours
-)
+if st.button("🔄 Generate New Plan"):
+
+    new_plan = generate_plan(
+        selected_module,
+        hours,
+        st.session_state.anki_minutes,
+    )
+
+
+    tasks = prepare_plan(
+        new_plan["tasks"]
+    )
+
+
+    save_today_plan(
+        tasks
+    )
+
+
+    st.rerun()
+
+
+
+today_plan = get_today_plan()
+
+
+
+if not today_plan:
+
+    generated_plan = generate_plan(
+        selected_module,
+        hours,
+        st.session_state.anki_minutes,
+    )
+
+
+    tasks = prepare_plan(
+        generated_plan["tasks"]
+    )
+
+
+    save_today_plan(
+        tasks
+    )
+
+
+    today_plan = get_today_plan()
+
+
 
 # =====================================================
 # SUMMARY
@@ -69,13 +314,60 @@ plan = generate_plan(
 
 st.divider()
 
+
+total_minutes = sum(
+    item["duration"]
+    for item in today_plan
+)
+
+
+
+completed_tasks = sum(
+    1
+    for item in today_plan
+    if item["completed"]
+)
+
+
+
 c1, c2, c3 = st.columns(3)
 
-c1.metric("🧠 Anki", f"{plan['anki_minutes']} min")
-c2.metric("📚 Curriculum", f"{plan['curriculum_minutes']} min")
-c3.metric("⏱ Total", f"{plan['total_minutes']} min")
+
+
+with c1:
+
+    st.metric(
+        "🧠 Anki",
+        f"{st.session_state.anki_cards} cards",
+    )
+
+    st.caption(
+        f"≈ {st.session_state.anki_minutes} mins"
+    )
+
+
+
+with c2:
+
+    st.metric(
+        "📚 Curriculum",
+        f"{total_minutes} mins",
+    )
+
+
+
+with c3:
+
+    st.metric(
+        "⏱ Total",
+        f"{total_minutes + st.session_state.anki_minutes} mins",
+    )
+
+
 
 st.divider()
+
+
 
 # =====================================================
 # ANKI
@@ -83,92 +375,205 @@ st.divider()
 
 st.header("🧠 Daily Anki")
 
+
 st.checkbox(
-    f"Complete Anki ({plan['anki_minutes']} min)",
-    key="anki_today"
+
+    f"Complete {st.session_state.anki_cards} cards",
+
+    key="anki_today",
+
 )
+
+
 
 st.info(
-    f"Today's Anki target: {plan['anki_minutes']} minutes"
+
+    f"Today's Anki target is "
+    f"{st.session_state.anki_cards} cards "
+    f"(≈ {st.session_state.anki_minutes} minutes)."
+
 )
 
+
+
 st.divider()
+
+
 
 # =====================================================
 # TODAY'S STUDY
 # =====================================================
 
 st.header("📚 Today's Study")
+# =====================================================
+# DISPLAY TODAY'S TASKS
+# =====================================================
 
-if not plan["tasks"]:
+if not today_plan:
 
-    st.success("🎉 Everything has been completed!")
+    st.success(
+        "🎉 No tasks remaining!"
+    )
+
 
 else:
 
     completed = 0
 
-    for i, task in enumerate(plan["tasks"], start=1):
 
-        current_value = bool(
-            conn.execute(
-                """
-                SELECT completed
-                FROM curriculum
-                WHERE id=?
-                """,
-                (task["id"],)
-            ).fetchone()[0]
+    for index, task in enumerate(
+        today_plan,
+        start=1
+    ):
+
+        checked = task["completed"]
+
+
+        new_value = st.checkbox(
+
+            f"{index}. {task['task']}",
+
+            value=checked,
+
+            key=f"daily_{task['curriculum_id']}_{index}"
+
         )
 
-        checked = st.checkbox(
-            f"{i}. {task['task']}",
-            value=current_value,
-            key=f"today_{task['id']}"
-        )
 
-        if checked != current_value:
+        if new_value != checked:
 
-            conn.execute(
-                """
-                UPDATE curriculum
-                SET completed=?
-                WHERE id=?
-                """,
-                (
-                    int(checked),
-                    task["id"]
-                )
+
+            set_today_completed(
+
+                task["curriculum_id"],
+
+                new_value
+
             )
 
-            conn.commit()
+
+            set_completed(
+
+                task["curriculum_id"],
+
+                new_value
+
+            )
+
 
             st.rerun()
 
-        if checked:
+
+
+        if new_value:
+
             completed += 1
 
-        a, b, c = st.columns(3)
 
-        with a:
-            st.caption(f"📖 {task['learning_type']}")
 
-        with b:
+        col1, col2, col3 = st.columns(3)
+
+
+
+        with col1:
+
             st.caption(
-                f"📂 {task['topic']}"
-                if task["topic"]
-                else "📂 General"
+
+                f"📖 {task['learning_type']}"
+
             )
 
-        with c:
-            st.caption(f"⏱ {task['duration']} min")
+
+
+        with col2:
+
+            topic = (
+                task["topic"]
+                if task["topic"]
+                else "General"
+            )
+
+
+            st.caption(
+
+                f"📂 {topic}"
+
+            )
+
+
+
+        with col3:
+
+            st.caption(
+
+                f"⏱ {task['duration']} min"
+
+            )
+
+
 
         st.divider()
 
-    st.progress(completed / len(plan["tasks"]))
 
-    st.caption(
-        f"Completed {completed} of {len(plan['tasks'])} study tasks."
+
+# =====================================================
+# PROGRESS SUMMARY
+# =====================================================
+
+if today_plan:
+
+    total = len(today_plan)
+
+
+    progress = (
+
+        completed / total
+
+        if total
+
+        else 0
+
     )
 
-conn.close()
+
+    st.progress(progress)
+
+
+
+    st.caption(
+
+        f"Completed {completed} of {total} study tasks."
+
+    )
+
+
+
+    remaining = total - completed
+
+
+
+    st.info(
+
+        f"Remaining tasks: {remaining}"
+
+    )
+
+
+
+    if completed == total:
+
+        st.balloons()
+
+
+        st.success(
+
+            "🎉 Great work! You've completed today's study plan."
+
+        )
+
+
+
+# =====================================================
+# CLOSE DATABASE
+# =====================================================
+

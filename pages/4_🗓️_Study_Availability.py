@@ -1,5 +1,7 @@
 import streamlit as st
+from auth.require_login import require_login
 
+require_login()
 from availability.availability import (
     load_grid,
     save_grid

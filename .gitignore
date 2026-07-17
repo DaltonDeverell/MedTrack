@@ -3,3 +3,19 @@ __pycache__/
 *.pyc
 
 .streamlit/secrets.toml
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local database
+database/*.db
+
+# Mac
+.DS_Store
+
+# Secrets
+.env
+
+# Streamlit
+.streamlit/secrets.toml
