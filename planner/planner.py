@@ -1,4 +1,5 @@
 from datetime import datetime
+import streamlit as st
 
 from availability.availability import get_available_slots
 from timetable.timetable_service import (
@@ -49,7 +50,6 @@ def add_minutes(time_string, minutes):
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
-
 # =====================================================
 # GENERATE PLAN
 # =====================================================
@@ -60,6 +60,10 @@ def generate_plan(
     anki_minutes,
 ):
 
+    st.subheader("🐞 Planner Debug")
+
+    st.write("Hours received:", hours)
+    st.write("Anki minutes received:", anki_minutes)
 
     # -------------------------------------------------
     # LOAD CURRICULUM FROM SUPABASE
@@ -68,17 +72,14 @@ def generate_plan(
     query = (
         supabase
         .table("curriculum")
-        .select(
-            """
+        .select("""
             id,
             module,
             topic,
             learning_type,
             task
-            """
-        )
+        """)
     )
-
 
     if module != "All":
 
@@ -87,53 +88,34 @@ def generate_plan(
             module
         )
 
-
     response = query.execute()
 
-
     rows = response.data
-
-
 
     completed_ids = set(
         get_completed_ids()
     )
-
-
 
     # -------------------------------------------------
     # FILTER INCOMPLETE TASKS
     # -------------------------------------------------
 
     tasks = [
-
         row
-
         for row in rows
-
         if (
             row["learning_type"] in SELF_STUDY_TYPES
             and row["id"] not in completed_ids
         )
-
     ]
-
-
 
     grouped = {
         learning_type: []
         for learning_type in SELF_STUDY_TYPES
     }
 
-
-
     for task in tasks:
-
-        grouped[
-            task["learning_type"]
-        ].append(task)
-
-
+        grouped[task["learning_type"]].append(task)
 
     # -------------------------------------------------
     # GET AVAILABLE TIME
@@ -141,19 +123,14 @@ def generate_plan(
 
     today = datetime.today().strftime("%A")
 
-
     available_slots = get_available_slots(today)
 
-
     blocks = load_blocks_for_day(today)
-
 
     available_slots = remove_slots_inside_blocks(
         available_slots,
         blocks,
     )
-
-
 
     if len(available_slots) == 0:
 
@@ -171,31 +148,26 @@ def generate_plan(
 
         }
 
-
-
     available_minutes = min(
         len(available_slots) * 30,
         hours * 60,
     )
 
-
+    st.write("Available before Anki:", available_minutes)
 
     available_minutes -= anki_minutes
 
-
+    st.write("Available after Anki:", available_minutes)
 
     if available_minutes < 0:
 
         available_minutes = 0
 
-
+    st.write("Final available minutes:", available_minutes)
 
     used_minutes = 0
 
-
     todays_plan = []
-
-
 
     # -------------------------------------------------
     # BUILD STUDY PLAN
@@ -203,81 +175,45 @@ def generate_plan(
 
     while used_minutes < available_minutes:
 
-
         added = False
-
-
 
         for learning_type in SELF_STUDY_TYPES:
 
-
             if not grouped[learning_type]:
-
                 continue
 
-
-
             task = grouped[learning_type][0]
-
-
 
             duration = STUDY_TIMES.get(
                 learning_type,
                 45,
             )
 
-
-
             if used_minutes + duration > available_minutes:
-
                 continue
 
+            todays_plan.append({
 
+                "id": task["id"],
+                "curriculum_id": task["id"],
+                "module": task["module"],
+                "topic": task["topic"],
+                "learning_type": task["learning_type"],
+                "task": task["task"],
+                "duration": duration,
 
-            todays_plan.append(
-
-                {
-
-                    # IMPORTANT:
-                    # Supabase curriculum ID
-
-                    "id": task["id"],
-
-                    "curriculum_id": task["id"],
-
-
-                    "module": task["module"],
-
-                    "topic": task["topic"],
-
-                    "learning_type": task["learning_type"],
-
-                    "task": task["task"],
-
-                    "duration": duration,
-
-                }
-
-            )
-
-
+            })
 
             grouped[learning_type].pop(0)
 
-
-
             used_minutes += duration
-
 
             added = True
 
-
-
         if not added:
-
             break
 
-
+    st.write("Curriculum minutes planned:", used_minutes)
 
     # -------------------------------------------------
     # BUILD SCHEDULE
@@ -285,78 +221,58 @@ def generate_plan(
 
     schedule = []
 
-
     current = available_slots[0]
-
-
 
     if anki_minutes > 0:
 
+        schedule.append({
 
-        schedule.append(
+            "title": "🧠 Anki",
 
-            {
+            "learning_type": "Anki",
 
-                "title": "🧠 Anki",
+            "start": current,
 
-                "learning_type": "Anki",
+            "end": add_minutes(
+                current,
+                anki_minutes,
+            ),
 
-                "start": current,
+            "duration": anki_minutes,
 
-                "end": add_minutes(
-                    current,
-                    anki_minutes,
-                ),
-
-                "duration": anki_minutes,
-
-            }
-
-        )
-
+        })
 
         current = add_minutes(
             current,
             anki_minutes,
         )
 
-
-
     for task in todays_plan:
-
 
         end = add_minutes(
             current,
             task["duration"],
         )
 
+        schedule.append({
 
-        schedule.append(
+            "title": task["task"],
 
-            {
+            "learning_type": task["learning_type"],
 
-                "title": task["task"],
+            "start": current,
 
-                "learning_type": task["learning_type"],
+            "end": end,
 
-                "start": current,
+            "duration": task["duration"],
 
-                "end": end,
+            "module": task["module"],
 
-                "duration": task["duration"],
+            "topic": task["topic"],
 
-                "module": task["module"],
-
-                "topic": task["topic"],
-
-            }
-
-        )
-
+        })
 
         current = end
-
-
 
     # -------------------------------------------------
     # RETURN
