@@ -1,5 +1,4 @@
 from datetime import datetime
-import streamlit as st
 
 from availability.availability import get_available_slots
 from timetable.timetable_service import (
@@ -60,10 +59,8 @@ def generate_plan(
     anki_minutes,
 ):
 
-
-
     # -------------------------------------------------
-    # LOAD CURRICULUM FROM SUPABASE
+    # LOAD CURRICULUM
     # -------------------------------------------------
 
     query = (
@@ -79,23 +76,11 @@ def generate_plan(
     )
 
     if module != "All":
+        query = query.eq("module", module)
 
-        query = query.eq(
-            "module",
-            module
-        )
+    rows = query.execute().data
 
-    response = query.execute()
-
-    rows = response.data
-
-    completed_ids = set(
-        get_completed_ids()
-    )
-
-    # -------------------------------------------------
-    # FILTER INCOMPLETE TASKS
-    # -------------------------------------------------
+    completed_ids = set(get_completed_ids())
 
     tasks = [
         row
@@ -105,8 +90,6 @@ def generate_plan(
             and row["id"] not in completed_ids
         )
     ]
-    st.write("Total curriculum rows:", len(rows))
-    st.write("Incomplete study tasks:", len(tasks))
 
     grouped = {
         learning_type: []
@@ -117,50 +100,18 @@ def generate_plan(
         grouped[task["learning_type"]].append(task)
 
     # -------------------------------------------------
-    # GET AVAILABLE TIME
+    # AVAILABLE STUDY TIME
     # -------------------------------------------------
 
-    today = datetime.today().strftime("%A")
-
-    available_slots = get_available_slots(today)
-
-    blocks = load_blocks_for_day(today)
-
-    available_slots = remove_slots_inside_blocks(
-        available_slots,
-        blocks,
+    available_minutes = max(
+        0,
+        (hours * 60) - anki_minutes,
     )
-
-    if len(available_slots) == 0:
-
-        return {
-
-            "anki_minutes": anki_minutes,
-
-            "curriculum_minutes": 0,
-
-            "total_minutes": anki_minutes,
-
-            "tasks": [],
-
-            "schedule": [],
-
-        }
-
-# Use the user's selected study time rather than requiring
-# weekly availability to generate a plan.
-
-available_minutes = (hours * 60) - anki_minutes
-
-if available_minutes < 0:
-    available_minutes = 0
-
 
     used_minutes = 0
 
     todays_plan = []
-
-    # -------------------------------------------------
+        # -------------------------------------------------
     # BUILD STUDY PLAN
     # -------------------------------------------------
 
@@ -173,7 +124,7 @@ if available_minutes < 0:
             if not grouped[learning_type]:
                 continue
 
-            task = grouped[learning_type][0]
+            task = grouped[learning_type].pop(0)
 
             duration = STUDY_TIMES.get(
                 learning_type,
@@ -181,6 +132,7 @@ if available_minutes < 0:
             )
 
             if used_minutes + duration > available_minutes:
+                grouped[learning_type].insert(0, task)
                 continue
 
             todays_plan.append({
@@ -195,42 +147,42 @@ if available_minutes < 0:
 
             })
 
-            grouped[learning_type].pop(0)
-
             used_minutes += duration
-
             added = True
 
         if not added:
             break
 
-
     # -------------------------------------------------
     # BUILD SCHEDULE
     # -------------------------------------------------
 
+    today = datetime.today().strftime("%A")
+
+    available_slots = get_available_slots(today)
+
+    blocks = load_blocks_for_day(today)
+
+    available_slots = remove_slots_inside_blocks(
+        available_slots,
+        blocks,
+    )
+
+    if available_slots:
+        current = available_slots[0]
+    else:
+        current = "09:00"
+
     schedule = []
 
-if available_slots:
-    current = available_slots[0]
-else:
-    current = "09:00"
-    
     if anki_minutes > 0:
 
         schedule.append({
 
             "title": "🧠 Anki",
-
             "learning_type": "Anki",
-
             "start": current,
-
-            "end": add_minutes(
-                current,
-                anki_minutes,
-            ),
-
+            "end": add_minutes(current, anki_minutes),
             "duration": anki_minutes,
 
         })
@@ -250,24 +202,17 @@ else:
         schedule.append({
 
             "title": task["task"],
-
             "learning_type": task["learning_type"],
-
             "start": current,
-
             "end": end,
-
             "duration": task["duration"],
-
             "module": task["module"],
-
             "topic": task["topic"],
 
         })
 
         current = end
-
-    # -------------------------------------------------
+            # -------------------------------------------------
     # RETURN
     # -------------------------------------------------
 
