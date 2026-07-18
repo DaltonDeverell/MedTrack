@@ -1,7 +1,6 @@
-import sqlite3
+from services.supabase_client import supabase
+from services.progress_service import get_user_id
 import pandas as pd
-
-DATABASE = "database/medtrack.db"
 
 # =====================================================
 # DAYS
@@ -14,17 +13,16 @@ DAYS = [
     "Thursday",
     "Friday",
     "Saturday",
-    "Sunday"
+    "Sunday",
 ]
 
 # =====================================================
-# HALF HOUR TIME SLOTS
+# HALF HOUR SLOTS
 # =====================================================
 
 TIME_SLOTS = []
 
 hour = 6
-
 minute = 0
 
 while True:
@@ -38,53 +36,10 @@ while True:
     if minute == 60:
 
         hour += 1
-
         minute = 0
 
     if hour == 22 and minute == 30:
-
         break
-
-# =====================================================
-# DATABASE
-# =====================================================
-
-def get_connection():
-
-    conn = sqlite3.connect(DATABASE)
-
-    conn.row_factory = sqlite3.Row
-
-    return conn
-
-
-# =====================================================
-# CREATE TABLE
-# =====================================================
-
-def create_availability_table():
-
-    conn = get_connection()
-
-    conn.execute("""
-
-        CREATE TABLE IF NOT EXISTS availability (
-
-            day TEXT,
-
-            time TEXT,
-
-            available INTEGER,
-
-            PRIMARY KEY(day,time)
-
-        )
-
-    """)
-
-    conn.commit()
-
-    conn.close()
 
 
 # =====================================================
@@ -94,13 +49,9 @@ def create_availability_table():
 def empty_grid():
 
     return pd.DataFrame(
-
         False,
-
         index=TIME_SLOTS,
-
-        columns=DAYS
-
+        columns=DAYS,
     )
 
 
@@ -110,75 +61,83 @@ def empty_grid():
 
 def load_grid():
 
-    create_availability_table()
+    user_id = get_user_id()
 
     grid = empty_grid()
 
-    conn = get_connection()
+    if user_id is None:
+        return grid
 
-    rows = conn.execute("""
+    response = (
+        supabase
+        .table("availability")
+        .select("*")
+        .eq("user_id", user_id)
+        .execute()
+    )
 
-        SELECT *
+    for row in response.data:
 
-        FROM availability
+        day = row["day"]
+        time = row["time"]
 
-    """).fetchall()
+        if (
+            day in DAYS
+            and time in TIME_SLOTS
+        ):
 
-    conn.close()
-
-    for row in rows:
-
-        grid.loc[
-            row["time"],
-            row["day"]
-        ] = bool(row["available"])
+            grid.loc[time, day] = row["available"]
 
     return grid
-
-
 # =====================================================
 # SAVE GRID
 # =====================================================
 
 def save_grid(grid):
 
-    create_availability_table()
+    user_id = get_user_id()
 
-    conn = get_connection()
+    if user_id is None:
+        return
 
-    conn.execute("""
+    # Remove old availability
 
-        DELETE FROM availability
+    (
+        supabase
+        .table("availability")
+        .delete()
+        .eq("user_id", user_id)
+        .execute()
+    )
 
-    """)
+    rows = []
 
     for day in DAYS:
 
         for time in TIME_SLOTS:
 
-            conn.execute("""
+            rows.append({
 
-                INSERT INTO availability
+                "user_id": user_id,
 
-                VALUES (?,?,?)
+                "day": day,
 
-            """,
+                "time": time,
 
-            (
+                "available": bool(
+                    grid.loc[time, day]
+                )
 
-                day,
+            })
 
-                time,
+    if rows:
 
-                int(grid.loc[time,day])
-
-            )
-
-            )
-
-    conn.commit()
-
-    conn.close()
+        (
+            supabase
+            .table("availability")
+            .insert(rows)
+            .execute()
+        )
 
 
 # =====================================================
@@ -193,7 +152,7 @@ def get_available_slots(day):
 
     for time in TIME_SLOTS:
 
-        if grid.loc[time,day]:
+        if bool(grid.loc[time, day]):
 
             available.append(time)
 

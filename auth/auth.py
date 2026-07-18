@@ -18,15 +18,12 @@ def signup(email, password):
         )
 
         if response.user is None:
-
             return None
 
         return response.user
 
     except Exception as e:
-
         st.error(str(e))
-
         return None
 
 
@@ -46,7 +43,6 @@ def login(email, password):
         )
 
         if response.user is None:
-
             return None
 
         st.session_state["user"] = response.user
@@ -54,9 +50,7 @@ def login(email, password):
         return response.user
 
     except Exception as e:
-
         st.error(str(e))
-
         return None
 
 
@@ -67,9 +61,7 @@ def login(email, password):
 def logout():
 
     try:
-
         supabase.auth.sign_out()
-
     except:
         pass
 
@@ -81,5 +73,4 @@ def logout():
 # =====================================================
 
 def current_user():
-
     return st.session_state.get("user")

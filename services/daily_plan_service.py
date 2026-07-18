@@ -12,20 +12,21 @@ def get_today_plan():
         return []
 
     response = (
-        supabase
-        .table("daily_plan")
-        .select("""
-            id,
-            curriculum_id,
-            completed,
-            task_order,
-            curriculum (
-                task,
-                module,
-                topic,
-                learning_type
-            )
-        """)
+    supabase
+    .table("daily_plan")
+    .select("""
+        id,
+        curriculum_id,
+        duration,
+        completed,
+        task_order,
+        curriculum (
+            task,
+            module,
+            topic,
+            learning_type
+        )
+    """)
         .eq("user_id", user_id)
         .eq("plan_date", str(date.today()))
         .order("task_order")
@@ -54,7 +55,7 @@ def get_today_plan():
 
                 "learning_type": curriculum["learning_type"],
 
-                "duration": 60,
+                "duration": row["duration"],
 
                 "completed": row["completed"]
 
@@ -106,6 +107,8 @@ def save_today_plan(tasks):
             "plan_date": str(date.today()),
 
             "curriculum_id": curriculum_id,
+            
+            "duration": task["duration"],
 
             "completed": False,
 
