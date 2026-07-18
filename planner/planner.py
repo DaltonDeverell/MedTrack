@@ -66,42 +66,39 @@ def generate_plan(
     query = (
         supabase
         .table("curriculum")
-        .select("""
-            id,
-            module,
-            topic,
-            learning_type,
-            task
-        """)
+        .select(
+            "id,module,topic,learning_type,task"
+        )
     )
 
     if module != "All":
         query = query.eq("module", module)
 
-    rows = query.execute().data
+    rows = query.execute().data or []
 
-    completed_ids = set(get_completed_ids())
+    completed_ids = set(
+        get_completed_ids()
+    )
 
-    tasks = [
-        row
-        for row in rows
+    tasks = []
+
+    for row in rows:
+
         if (
             row["learning_type"] in SELF_STUDY_TYPES
             and row["id"] not in completed_ids
-        )
-    ]
+        ):
+            tasks.append(row)
 
     grouped = {
-        learning_type: []
-        for learning_type in SELF_STUDY_TYPES
+        t: []
+        for t in SELF_STUDY_TYPES
     }
 
     for task in tasks:
-        grouped[task["learning_type"]].append(task)
-
-    # -------------------------------------------------
-    # AVAILABLE STUDY TIME
-    # -------------------------------------------------
+        grouped[
+            task["learning_type"]
+        ].append(task)
 
     available_minutes = max(
         0,
@@ -111,7 +108,7 @@ def generate_plan(
     used_minutes = 0
 
     todays_plan = []
-        # -------------------------------------------------
+    # -------------------------------------------------
     # BUILD STUDY PLAN
     # -------------------------------------------------
 
@@ -124,7 +121,7 @@ def generate_plan(
             if not grouped[learning_type]:
                 continue
 
-            task = grouped[learning_type].pop(0)
+            task = grouped[learning_type][0]
 
             duration = STUDY_TIMES.get(
                 learning_type,
@@ -132,7 +129,6 @@ def generate_plan(
             )
 
             if used_minutes + duration > available_minutes:
-                grouped[learning_type].insert(0, task)
                 continue
 
             todays_plan.append({
@@ -147,8 +143,13 @@ def generate_plan(
 
             })
 
+            grouped[learning_type].pop(0)
+
             used_minutes += duration
+
             added = True
+
+            break
 
         if not added:
             break
@@ -159,14 +160,20 @@ def generate_plan(
 
     today = datetime.today().strftime("%A")
 
-    available_slots = get_available_slots(today)
+    try:
 
-    blocks = load_blocks_for_day(today)
+        available_slots = get_available_slots(today)
 
-    available_slots = remove_slots_inside_blocks(
-        available_slots,
-        blocks,
-    )
+        blocks = load_blocks_for_day(today)
+
+        available_slots = remove_slots_inside_blocks(
+            available_slots,
+            blocks,
+        )
+
+    except Exception:
+
+        available_slots = []
 
     if available_slots:
         current = available_slots[0]
@@ -182,7 +189,10 @@ def generate_plan(
             "title": "🧠 Anki",
             "learning_type": "Anki",
             "start": current,
-            "end": add_minutes(current, anki_minutes),
+            "end": add_minutes(
+                current,
+                anki_minutes,
+            ),
             "duration": anki_minutes,
 
         })
