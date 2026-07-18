@@ -199,21 +199,6 @@ with right:
 
 
 # =====================================================
-# DEBUG
-# =====================================================
-
-st.info(
-    f"""
-Planner Debug
-
-Hours Selected: {hours}
-
-Anki Minutes: {st.session_state.anki_minutes}
-
-Module: {selected_module}
-"""
-)
-# =====================================================
 # LOAD / GENERATE TODAY'S PLAN
 # =====================================================
 

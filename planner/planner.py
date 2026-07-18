@@ -60,10 +60,7 @@ def generate_plan(
     anki_minutes,
 ):
 
-    st.subheader("🐞 Planner Debug")
 
-    st.write("Hours received:", hours)
-    st.write("Anki minutes received:", anki_minutes)
 
     # -------------------------------------------------
     # LOAD CURRICULUM FROM SUPABASE
@@ -153,17 +150,14 @@ def generate_plan(
         hours * 60,
     )
 
-    st.write("Available before Anki:", available_minutes)
 
     available_minutes -= anki_minutes
 
-    st.write("Available after Anki:", available_minutes)
 
     if available_minutes < 0:
 
         available_minutes = 0
 
-    st.write("Final available minutes:", available_minutes)
 
     used_minutes = 0
 
@@ -213,7 +207,6 @@ def generate_plan(
         if not added:
             break
 
-    st.write("Curriculum minutes planned:", used_minutes)
 
     # -------------------------------------------------
     # BUILD SCHEDULE
