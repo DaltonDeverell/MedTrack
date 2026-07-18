@@ -147,18 +147,13 @@ def generate_plan(
 
         }
 
-    available_minutes = min(
-        len(available_slots) * 30,
-        hours * 60,
-    )
+# Use the user's selected study time rather than requiring
+# weekly availability to generate a plan.
 
+available_minutes = (hours * 60) - anki_minutes
 
-    available_minutes -= anki_minutes
-
-
-    if available_minutes < 0:
-
-        available_minutes = 0
+if available_minutes < 0:
+    available_minutes = 0
 
 
     used_minutes = 0
@@ -216,8 +211,11 @@ def generate_plan(
 
     schedule = []
 
+if available_slots:
     current = available_slots[0]
-
+else:
+    current = "09:00"
+    
     if anki_minutes > 0:
 
         schedule.append({
