@@ -105,6 +105,8 @@ def generate_plan(
             and row["id"] not in completed_ids
         )
     ]
+    st.write("Total curriculum rows:", len(rows))
+    st.write("Incomplete study tasks:", len(tasks))
 
     grouped = {
         learning_type: []
