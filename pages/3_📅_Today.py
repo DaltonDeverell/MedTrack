@@ -248,47 +248,7 @@ if not today_plan:
 # SUMMARY
 # =====================================================
 
-st.divider()
 
-total_minutes = sum(
-    task["duration"]
-    for task in today_plan
-)
-
-completed_tasks = sum(
-    1
-    for task in today_plan
-    if task["completed"]
-)
-
-c1, c2, c3 = st.columns(3)
-
-with c1:
-
-    st.metric(
-        "🧠 Anki",
-        f"{st.session_state.anki_cards} cards",
-    )
-
-    st.caption(
-        f"≈ {st.session_state.anki_minutes} mins"
-    )
-
-with c2:
-
-    st.metric(
-        "📚 Curriculum",
-        f"{total_minutes} mins",
-    )
-
-with c3:
-
-    st.metric(
-        "⏱ Total",
-        f"{total_minutes + st.session_state.anki_minutes} mins",
-    )
-
-st.divider()
 
 st.divider()
 
