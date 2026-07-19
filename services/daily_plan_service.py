@@ -4,9 +4,13 @@ from services.supabase_client import supabase
 from services.progress_service import get_user_id
 
 
-def _today():
+def today():
     return date.today().isoformat()
 
+
+# =====================================================
+# LOAD TODAY'S PLAN
+# =====================================================
 
 def get_today_plan():
 
@@ -19,12 +23,11 @@ def get_today_plan():
         supabase
         .table("daily_plan")
         .select("""
-            id,
             curriculum_id,
             duration,
             completed,
             task_order,
-            curriculum (
+            curriculum(
                 task,
                 module,
                 topic,
@@ -32,34 +35,36 @@ def get_today_plan():
             )
         """)
         .eq("user_id", user_id)
-        .eq("plan_date", _today())
+        .eq("plan_date", today())
         .order("task_order")
         .execute()
     )
 
     tasks = []
 
-    for row in response.data:
+    for row in response.data or []:
 
-        curriculum = row.get("curriculum")
+        c = row["curriculum"]
 
-        if curriculum:
+        tasks.append({
 
-            tasks.append({
+            "id": row["curriculum_id"],
+            "curriculum_id": row["curriculum_id"],
+            "task": c["task"],
+            "module": c["module"],
+            "topic": c["topic"],
+            "learning_type": c["learning_type"],
+            "duration": row["duration"],
+            "completed": row["completed"],
 
-                "id": row["curriculum_id"],
-                "curriculum_id": row["curriculum_id"],
-                "task": curriculum["task"],
-                "module": curriculum["module"],
-                "topic": curriculum["topic"],
-                "learning_type": curriculum["learning_type"],
-                "duration": row["duration"],
-                "completed": row["completed"]
-
-            })
+        })
 
     return tasks
 
+
+# =====================================================
+# SAVE TODAY'S PLAN
+# =====================================================
 
 def save_today_plan(tasks):
 
@@ -68,15 +73,12 @@ def save_today_plan(tasks):
     if user_id is None:
         return
 
-    today = _today()
-
-    # Delete today's existing plan
+    # Delete ALL existing plans for this user
     (
         supabase
         .table("daily_plan")
         .delete()
         .eq("user_id", user_id)
-        .eq("plan_date", today)
         .execute()
     )
 
@@ -95,11 +97,11 @@ def save_today_plan(tasks):
         rows.append({
 
             "user_id": user_id,
-            "plan_date": today,
+            "plan_date": today(),
             "curriculum_id": curriculum_id,
             "duration": task["duration"],
             "completed": False,
-            "task_order": order
+            "task_order": order,
 
         })
 
@@ -112,6 +114,10 @@ def save_today_plan(tasks):
             .execute()
         )
 
+
+# =====================================================
+# COMPLETE TASK
+# =====================================================
 
 def set_today_completed(curriculum_id, completed):
 
@@ -127,7 +133,7 @@ def set_today_completed(curriculum_id, completed):
             "completed": completed
         })
         .eq("user_id", user_id)
-        .eq("plan_date", _today())
+        .eq("plan_date", today())
         .eq("curriculum_id", curriculum_id)
         .execute()
     )
