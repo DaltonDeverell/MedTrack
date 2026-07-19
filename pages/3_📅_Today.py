@@ -1,10 +1,10 @@
+import streamlit as st
 
 from auth.require_login import require_login
 from planner.planner import generate_plan
 
 from services.progress_service import (
     set_completed,
-    get_user_id,
 )
 
 from services.daily_plan_service import (
@@ -40,30 +40,31 @@ st.write(
 # LOAD MODULES
 # =====================================================
 
-modules_response = (
+modules = (
     supabase
     .table("curriculum")
     .select("module")
     .execute()
+    .data
 )
 
 module_names = ["All"]
-seen_modules = set()
 
-for item in modules_response.data:
+for row in modules:
 
-    module = item["module"]
+    module = row["module"]
 
-    if module not in seen_modules:
-
-        seen_modules.add(module)
-
+    if module not in module_names:
         module_names.append(module)
 
 
 # =====================================================
-# NORMALISE TASK IDS
+# HELPERS
 # =====================================================
+
+SECONDS_PER_CARD = 6
+MAX_CARDS = 600
+
 
 def prepare_plan(tasks):
 
@@ -71,25 +72,14 @@ def prepare_plan(tasks):
 
     for task in tasks:
 
-        curriculum_id = task.get(
+        task["curriculum_id"] = task.get(
             "curriculum_id",
-            task["id"]
+            task["id"],
         )
-
-        task["curriculum_id"] = curriculum_id
 
         cleaned.append(task)
 
     return cleaned
-
-
-# =====================================================
-# CONSTANTS
-# =====================================================
-
-SECONDS_PER_CARD = 6
-
-MAX_CARDS = 600
 
 
 # =====================================================
@@ -129,24 +119,20 @@ def cards_changed():
 def minutes_changed():
 
     cards = round(
-        (
-            st.session_state.anki_minutes
-            * 60
-        )
+        st.session_state.anki_minutes
+        * 60
         / SECONDS_PER_CARD
     )
 
     cards = max(
         0,
-        min(MAX_CARDS, cards)
+        min(MAX_CARDS, cards),
     )
 
     cards = round(cards / 10) * 10
 
     st.session_state.anki_cards = cards
-
-
-# =====================================================
+    # =====================================================
 # SETTINGS
 # =====================================================
 
@@ -192,86 +178,43 @@ with right:
     )
 
     st.success(
-        f"🧠 {st.session_state.anki_cards} cards"
-        f" • "
+        f"🧠 {st.session_state.anki_cards} cards • "
         f"⏱️ ≈ {st.session_state.anki_minutes} minutes"
     )
 
 
 # =====================================================
-# LOAD / GENERATE TODAY'S PLAN
+# GENERATE / LOAD TODAY'S PLAN
 # =====================================================
-
-today_plan = get_today_plan()
-
-# -----------------------------------------------------
-# GENERATE NEW PLAN
-# -----------------------------------------------------
 
 if st.button("🔄 Generate New Plan"):
 
-    # Force delete any existing plan for this user
-    (
-        supabase
-        .table("daily_plan")
-        .delete()
-        .eq("user_id", get_user_id())
-        .execute()
-    )
-
     new_plan = generate_plan(
         selected_module,
         hours,
         st.session_state.anki_minutes,
     )
 
-    tasks = prepare_plan(
-        new_plan["tasks"]
+    save_today_plan(
+        prepare_plan(new_plan["tasks"])
     )
 
-    save_today_plan(tasks)
-
-    st.success("✅ New study plan generated.")
-
-    st.rerun()
-
-
-# -----------------------------------------------------
-# AUTO-GENERATE IF NONE EXISTS
-# -----------------------------------------------------
-
-if not today_plan:
-
-    new_plan = generate_plan(
-        selected_module,
-        hours,
-        st.session_state.anki_minutes,
-    )
-
-    tasks = prepare_plan(
-        new_plan["tasks"]
-    )
-
-    save_today_plan(tasks)
-
-    today_plan = get_today_plan()
-    # =====================================================
+today_plan = get_today_plan()
+# =====================================================
 # SUMMARY
 # =====================================================
-
-
 
 st.divider()
 
 total_minutes = sum(
-    item["duration"]
-    for item in today_plan
+    task["duration"]
+    for task in today_plan
 )
 
-completed_tasks = sum(
+completed = sum(
     1
-    for item in today_plan
-    if item["completed"]
+    for task in today_plan
+    if task["completed"]
 )
 
 c1, c2, c3 = st.columns(3)
@@ -323,36 +266,29 @@ st.info(
 
 st.divider()
 
+
 # =====================================================
 # TODAY'S STUDY
 # =====================================================
 
 st.header("📚 Today's Study")
-# =====================================================
-# DISPLAY TODAY'S TASKS
-# =====================================================
 
 if not today_plan:
 
-    st.success(
-        "🎉 No tasks remaining!"
+    st.info(
+        "Press 'Generate New Plan' to create today's study schedule."
     )
 
 else:
 
-    completed = 0
-
-    for index, task in enumerate(
-        today_plan,
-        start=1,
-    ):
+    for index, task in enumerate(today_plan, start=1):
 
         checked = task["completed"]
 
         new_value = st.checkbox(
             f"{index}. {task['task']}",
             value=checked,
-            key=f"daily_{task['curriculum_id']}_{index}",
+            key=f"task_{task['curriculum_id']}",
         )
 
         if new_value != checked:
@@ -369,9 +305,6 @@ else:
 
             st.rerun()
 
-        if new_value:
-            completed += 1
-
         col1, col2, col3 = st.columns(3)
 
         with col1:
@@ -380,15 +313,8 @@ else:
             )
 
         with col2:
-
-            topic = (
-                task["topic"]
-                if task["topic"]
-                else "General"
-            )
-
             st.caption(
-                f"📂 {topic}"
+                f"📂 {task['topic'] or 'General'}"
             )
 
         with col3:
@@ -397,19 +323,23 @@ else:
             )
 
         st.divider()
-
-
-# =====================================================
+        # =====================================================
 # PROGRESS SUMMARY
 # =====================================================
 
 if today_plan:
 
+    completed = sum(
+        1
+        for task in today_plan
+        if task["completed"]
+    )
+
     total = len(today_plan)
 
     progress = (
         completed / total
-        if total
+        if total > 0
         else 0
     )
 
