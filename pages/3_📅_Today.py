@@ -1,10 +1,10 @@
-import streamlit as st
 
 from auth.require_login import require_login
 from planner.planner import generate_plan
 
 from services.progress_service import (
     set_completed,
+    get_user_id,
 )
 
 from services.daily_plan_service import (
@@ -210,6 +210,15 @@ today_plan = get_today_plan()
 
 if st.button("🔄 Generate New Plan"):
 
+    # Force delete any existing plan for this user
+    (
+        supabase
+        .table("daily_plan")
+        .delete()
+        .eq("user_id", get_user_id())
+        .execute()
+    )
+
     new_plan = generate_plan(
         selected_module,
         hours,
@@ -221,6 +230,8 @@ if st.button("🔄 Generate New Plan"):
     )
 
     save_today_plan(tasks)
+
+    st.success("✅ New study plan generated.")
 
     st.rerun()
 
