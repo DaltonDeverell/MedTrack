@@ -110,21 +110,26 @@ def set_completed(curriculum_id, completed):
         "completed_at": datetime.utcnow().isoformat() if completed else None
     }
 
-    if existing.data:
+    st.write("Existing:", existing.data)
 
-        (
-            supabase
-            .table("progress")
-            .update(data)
-            .eq("id", existing.data[0]["id"])
-            .execute()
-        )
+if existing.data:
 
-    else:
+    (
+        supabase
+        .table("progress")
+        .update(data)
+        .eq("id", existing.data[0]["id"])
+        .execute()
+    )
 
-        (
-            supabase
-            .table("progress")
-            .insert(data)
-            .execute()
-        )
+else:
+
+    st.write("No existing row found - trying INSERT")
+
+    (
+        supabase
+        .table("progress")
+        .insert(data)
+        .execute()
+    )
+    
